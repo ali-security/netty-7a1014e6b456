@@ -26,6 +26,7 @@ import org.junit.Test;
 
 import java.util.Arrays;
 
+import static org.jboss.netty.util.internal.PlatformDependentTest.*;
 import static org.junit.Assert.*;
 
 /** {@link HttpPostRequestDecoder} test case. */
@@ -68,6 +69,52 @@ public class HttpPostRequestDecoderTest {
             // Validate data has been parsed correctly as it was passed into request.
             assertArrayEquals("Invalid decoded data [data=" + data + "upload=" + upload + ']',
                 data.getBytes(), upload.get());
+        }
+    }
+
+    @Test
+    public void testDiskUploadIsStoredInFilesNotReadableByOthers() throws Exception {
+        final String boundary = "dLV9Wyq26L_-JQxk6ferf-RT153LhOO";
+
+        final DefaultHttpRequest req = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.POST, "http://localhost");
+
+        req.setContent(ChannelBuffers.EMPTY_BUFFER);
+        req.setHeader(HttpHeaders.Names.CONTENT_TYPE, "multipart/form-data; boundary=" + boundary);
+        req.setHeader(HttpHeaders.Names.TRANSFER_ENCODING, HttpHeaders.Values.CHUNKED);
+        req.setChunked(true);
+
+        // Force to use disk-based data.
+        final DefaultHttpDataFactory diskFactory = new DefaultHttpDataFactory(true);
+
+        final String body =
+                "--" + boundary + "\r\n" +
+                "Content-Disposition: form-data; name=\"password\"\r\n" +
+                "\r\n" +
+                "secret\r\n" +
+                "--" + boundary + "\r\n" +
+                "Content-Disposition: form-data; name=\"file\"; filename=\"secret.txt\"\r\n" +
+                "Content-Type: text/plain\r\n" +
+                "\r\n" +
+                "secret content\r\n" +
+                "--" + boundary + "--\r\n";
+
+        final HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(diskFactory, req);
+        try {
+            decoder.offer(new DefaultHttpChunk(ChannelBuffers.copiedBuffer(body, CharsetUtil.UTF_8)));
+            decoder.offer(new DefaultHttpChunk(ChannelBuffers.EMPTY_BUFFER));
+
+            assertTrue(decoder.hasNext());
+            DiskAttribute attribute = (DiskAttribute) decoder.next();
+            assertEquals("secret", attribute.getValue());
+            // The uploaded data must not be readable by other local users.
+            assertNotReadableByOthers(attribute.getFile());
+
+            assertTrue(decoder.hasNext());
+            DiskFileUpload upload = (DiskFileUpload) decoder.next();
+            assertEquals("secret content", upload.getString(CharsetUtil.UTF_8));
+            assertNotReadableByOthers(upload.getFile());
+        } finally {
+            decoder.cleanFiles();
         }
     }
 }
