@@ -41,4 +41,63 @@ public class HttpMessageDecoderTest {
             assertTrue(e.getCause() instanceof IllegalArgumentException);
         }
     }
+
+    @Test
+    public void testMultipleContentLengthHeaders() {
+        String requestStr = "GET /some/path HTTP/1.1\r\n" +
+                "Content-Length: 1\r\n" +
+                "Content-Length: 0\r\n\r\n" +
+                "b";
+        testInvalidHeaders0(requestStr);
+    }
+
+    @Test
+    public void testMultipleContentLengthHeaders2() {
+        String requestStr = "GET /some/path HTTP/1.1\r\n" +
+                "Content-Length: 1\r\n" +
+                "Connection: close\r\n" +
+                "Content-Length: 0\r\n\r\n" +
+                "b";
+        testInvalidHeaders0(requestStr);
+    }
+
+    @Test
+    public void testContentLengthHeaderWithCommaValue() {
+        String requestStr = "GET /some/path HTTP/1.1\r\n" +
+                "Content-Length: 1,1\r\n\r\n" +
+                "b";
+        testInvalidHeaders0(requestStr);
+    }
+
+    @Test
+    public void testMultipleContentLengthHeadersWithFolding() {
+        String requestStr = "POST / HTTP/1.1\r\n" +
+                "Host: example.com\r\n" +
+                "Connection: close\r\n" +
+                "Content-Length: 5\r\n" +
+                "Content-Length:\r\n" +
+                "\t6\r\n\r\n" +
+                "123456";
+        testInvalidHeaders0(requestStr);
+    }
+
+    @Test
+    public void testContentLengthAndTransferEncodingChunked() {
+        String requestStr = "POST / HTTP/1.1\r\n" +
+                "Host: example.com\r\n" +
+                "Content-Length: 5\r\n" +
+                "Transfer-Encoding: chunked\r\n\r\n" +
+                "0\r\n\r\n";
+        testInvalidHeaders0(requestStr);
+    }
+
+    private static void testInvalidHeaders0(String requestStr) {
+        DecoderEmbedder<Object> embedder = new DecoderEmbedder<Object>(new HttpRequestDecoder());
+        try {
+            embedder.offer(ChannelBuffers.copiedBuffer(requestStr, CharsetUtil.US_ASCII));
+            fail("Expected CodecEmbedderException");
+        } catch (CodecEmbedderException e) {
+            assertTrue(e.getCause() instanceof IllegalArgumentException);
+        }
+    }
 }
